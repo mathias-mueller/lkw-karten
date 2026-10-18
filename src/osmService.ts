@@ -1,6 +1,51 @@
 import type { TruckConfig, RestrictionItem, StatusColor, RestrictionType, OsmElement } from './types';
 
 /**
+ * Custom error class for OpenStreetMap / Overpass API errors
+ * with user-friendly error messages and optional HTTP status code.
+ */
+export class OsmApiError extends Error {
+  public statusCode?: number;
+  public userMessage: string;
+  public rawMessage?: string;
+
+  constructor(userMessage: string, statusCode?: number, rawMessage?: string) {
+    super(userMessage);
+    this.name = 'OsmApiError';
+    this.userMessage = userMessage;
+    this.statusCode = statusCode;
+    this.rawMessage = rawMessage;
+  }
+}
+
+/**
+ * Maps any error encountered during OSM fetching to a meaningful, actionable German message.
+ */
+export function getErrorMessage(err: unknown, currentZoom?: number): string {
+  if (currentZoom !== undefined && currentZoom < 11) {
+    return `Kartenausschnitt zu groß (Zoomstufe ${currentZoom}): Bitte zoome näher heran (mindestens Stufe 11), um Hindernisse für diesen Bereich abzurufen.`;
+  }
+  if (err instanceof OsmApiError) {
+    return err.userMessage;
+  }
+  if (typeof window !== 'undefined' && typeof navigator !== 'undefined' && navigator.onLine === false) {
+    return 'Keine Internetverbindung vorhanden. Bitte überprüfe deine Netzwerkverbindung.';
+  }
+  if (err instanceof TypeError && err.message.toLowerCase().includes('fetch')) {
+    return 'Verbindung zum OSM Overpass-Server fehlgeschlagen. Bitte prüfe deine Internetverbindung oder Werbeblocker-Einstellungen.';
+  }
+  if (err instanceof Error) {
+    if (err.name === 'AbortError') {
+      return 'Die Datenabfrage wurde abgebrochen.';
+    }
+    if (err.message && err.message.trim().length > 0) {
+      return `Fehler bei der Abfrage: ${err.message}`;
+    }
+  }
+  return 'Unerwarteter Fehler beim Abrufen der Kartendaten von OpenStreetMap.';
+}
+
+/**
  * Parses OSM dimension/weight strings into standard float numbers.
  * Examples in OSM:
  * - "3.8" -> 3.8
@@ -19,7 +64,7 @@ export function parseOsmValue(valStr: string | undefined): number | undefined {
     return undefined;
   }
 
-  // Check feet and inches e.g. 13'6\" or 13' 6\"
+  // Check feet and inches e.g. 13'6" or 13' 6"
   const feetInchesMatch = s.match(/^(\d+(?:\.\d+)?)\s*'\s*(?:(\d+(?:\.\d+)?)\s*")?$/);
   if (feetInchesMatch) {
     const feet = parseFloat(feetInchesMatch[1]);
@@ -50,6 +95,7 @@ export function parseOsmValue(valStr: string | undefined): number | undefined {
 /**
  * Builds the Overpass QL query string for bounding box.
  * bbox format for Overpass: south, west, north, east
+ * Uses 'qt' (quadtile sorting) for significantly faster execution on the Overpass server.
  */
 export function buildOverpassQuery(south: number, west: number, north: number, east: number): string {
   const bboxStr = `${south},${west},${north},${east}`;
@@ -65,7 +111,7 @@ export function buildOverpassQuery(south: number, west: number, north: number, e
   node["maxaxleload"](${bboxStr});
   way["maxaxleload"](${bboxStr});
 );
-out center tags;
+out center tags qt;
   `.trim();
 }
 
@@ -76,6 +122,7 @@ const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
   'https://overpass.kumi.systems/api/interpreter',
+  'https://overpass.private.coffee/api/interpreter',
 ];
 
 let currentEndpointIndex = 0;
@@ -90,7 +137,7 @@ export async function fetchOsmRestrictions(
   const query = buildOverpassQuery(south, west, north, east);
   
   let lastError: unknown = null;
-  // Try up to 2 endpoints
+  // Try endpoints
   for (let attempt = 0; attempt < OVERPASS_ENDPOINTS.length; attempt++) {
     const endpoint = OVERPASS_ENDPOINTS[(currentEndpointIndex + attempt) % OVERPASS_ENDPOINTS.length];
     try {
@@ -104,12 +151,79 @@ export async function fetchOsmRestrictions(
       });
 
       if (!response.ok) {
-        throw new Error(`Overpass API responded with HTTP ${response.status}: ${response.statusText}`);
+        if (response.status === 429) {
+          throw new OsmApiError(
+            'Zu viele Anfragen an die Overpass API (Rate Limit erreicht). Bitte warte ca. 10–20 Sekunden und versuche es erneut.',
+            429,
+            `HTTP 429 Too Many Requests (${endpoint})`
+          );
+        } else if (response.status === 504 || response.status === 408) {
+          throw new OsmApiError(
+            'Zeitüberschreitung beim Abruf: Der gewählte Kartenausschnitt enthält möglicherweise zu viele Daten. Bitte zoome etwas näher heran.',
+            response.status,
+            `HTTP ${response.status} Timeout (${endpoint})`
+          );
+        } else if (response.status >= 500) {
+          throw new OsmApiError(
+            `Der OpenStreetMap-Server ist vorübergehend nicht erreichbar oder überlastet (HTTP ${response.status}). Bitte versuche es gleich noch einmal.`,
+            response.status,
+            `HTTP ${response.status} Server Error (${endpoint})`
+          );
+        } else {
+          throw new OsmApiError(
+            `Overpass API meldet HTTP-Fehler ${response.status}: ${response.statusText}`,
+            response.status,
+            `HTTP ${response.status} (${endpoint})`
+          );
+        }
       }
 
-      const json = await response.json();
+      let json: { remark?: string; elements?: OsmElement[] };
+      try {
+        json = await response.json();
+      } catch {
+        throw new OsmApiError(
+          'Ungültige Antwort von der Overpass API erhalten (kein JSON). Der Dienst ist möglicherweise temporär gestört.',
+          undefined,
+          `Invalid JSON response from ${endpoint}`
+        );
+      }
+
+      if (json.remark && typeof json.remark === 'string') {
+        const remarkLower = json.remark.toLowerCase();
+        if (remarkLower.includes('timed out')) {
+          throw new OsmApiError(
+            'Zeitüberschreitung bei der Abfrage: Der Kartenausschnitt ist zu datenintensiv. Bitte zoome näher heran.',
+            undefined,
+            json.remark
+          );
+        }
+        if (remarkLower.includes('out of memory') || remarkLower.includes('memory')) {
+          throw new OsmApiError(
+            'Speicherlimit der Overpass API überschritten. Bitte verkleinere den Ausschnitt durch Näherheranzoomen.',
+            undefined,
+            json.remark
+          );
+        }
+        if (remarkLower.includes('runtime error')) {
+          throw new OsmApiError(
+            `Overpass-API-Laufzeitfehler: ${json.remark}`,
+            undefined,
+            json.remark
+          );
+        }
+      }
+
+      if (!Array.isArray(json.elements)) {
+        throw new OsmApiError(
+          'Antwort der Overpass API enthält keine gültigen Element-Daten.',
+          undefined,
+          'json.elements is not an array'
+        );
+      }
+
       currentEndpointIndex = (currentEndpointIndex + attempt) % OVERPASS_ENDPOINTS.length;
-      return (json.elements || []) as OsmElement[];
+      return json.elements;
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'AbortError') {
         throw err;
@@ -119,7 +233,17 @@ export async function fetchOsmRestrictions(
     }
   }
 
-  throw (lastError as Error) || new Error('All Overpass API endpoints failed');
+  if (lastError instanceof OsmApiError) {
+    throw lastError;
+  }
+  if (lastError instanceof Error) {
+    throw new OsmApiError(
+      `Fehler beim Laden der OSM-Daten: ${lastError.message}`,
+      undefined,
+      lastError.message
+    );
+  }
+  throw new OsmApiError('Alle Overpass-API-Server sind derzeit nicht erreichbar. Bitte versuche es in Kürze erneut.');
 }
 
 /**
@@ -147,12 +271,6 @@ export function evaluateStatus(
   const failedTypes: RestrictionType[] = [];
   const borderlineTypes: RestrictionType[] = [];
   const infoTexts: string[] = [];
-
-  // Tolerances for "genau an der Grenze" (Yellow):
-  // Height: within 10cm or equal
-  // Width: within 10cm or equal
-  // Weight: within 1.0t or equal
-  // Axle: within 0.5t or equal
 
   if (item.maxHeight !== undefined) {
     if (truck.height > item.maxHeight) {

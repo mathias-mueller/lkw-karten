@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { RestrictionItem, TruckConfig } from './types';
+import { AlertCircle } from 'lucide-react';
 
 // Fix standard Leaflet marker icons when bundled with Vite
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
@@ -16,6 +17,7 @@ interface MapViewProps {
   truck: TruckConfig;
   onBoundsChange: (bounds: L.LatLngBounds, zoom: number) => void;
   isLoading: boolean;
+  error?: string | null;
   onSelectFeature?: (item: RestrictionItem) => void;
 }
 
@@ -24,6 +26,7 @@ export const MapView: React.FC<MapViewProps> = ({
   truck,
   onBoundsChange,
   isLoading,
+  error,
   onSelectFeature,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
@@ -213,6 +216,12 @@ export const MapView: React.FC<MapViewProps> = ({
         <div className="map-loading-overlay">
           <div className="spinner"></div>
           <span>Lade Hindernisdaten von OpenStreetMap...</span>
+        </div>
+      )}
+      {error && !isLoading && (
+        <div className="map-error-overlay" role="alert">
+          <AlertCircle size={16} />
+          <span>{error}</span>
         </div>
       )}
     </div>

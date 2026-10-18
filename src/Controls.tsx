@@ -1,6 +1,18 @@
 import React from 'react';
 import type { TruckConfig } from './types';
-import { Truck, ArrowUpDown, ArrowLeftRight, Weight, Gauge, RefreshCw, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import {
+  Truck,
+  ArrowUpDown,
+  ArrowLeftRight,
+  Weight,
+  Gauge,
+  RefreshCw,
+  AlertTriangle,
+  AlertCircle,
+  CheckCircle2,
+  XCircle,
+  X,
+} from 'lucide-react';
 
 interface ControlsProps {
   truck: TruckConfig;
@@ -10,6 +22,8 @@ interface ControlsProps {
   filterStatus: 'all' | 'red' | 'yellow' | 'green';
   setFilterStatus: (val: 'all' | 'red' | 'yellow' | 'green') => void;
   counts: { red: number; yellow: number; green: number; total: number };
+  error?: string | null;
+  onDismissError?: () => void;
 }
 
 // Preset vehicle configurations
@@ -29,6 +43,8 @@ export const Controls: React.FC<ControlsProps> = ({
   filterStatus,
   setFilterStatus,
   counts,
+  error,
+  onDismissError,
 }) => {
   return (
     <div className="sidebar-card">
@@ -203,11 +219,52 @@ export const Controls: React.FC<ControlsProps> = ({
         </div>
       </div>
 
-      {/* Refresh Button */}
-      <button className="refresh-button" onClick={onRefresh} disabled={isLoading}>
-        <RefreshCw size={18} className={isLoading ? 'spinning' : ''} />
-        {isLoading ? 'Lade OSM-Daten...' : 'Ausschnitt neu laden'}
-      </button>
+      {/* Refresh Section */}
+      <div className="refresh-section">
+        <button
+          className="refresh-button"
+          onClick={onRefresh}
+          disabled={isLoading}
+          aria-label="Ausschnitt neu laden"
+        >
+          <RefreshCw size={18} className={isLoading ? 'spinning' : ''} />
+          {isLoading ? 'Lade OSM-Daten...' : 'Ausschnitt neu laden'}
+        </button>
+
+        {error && (
+          <div className="refresh-error-card" role="alert">
+            <div className="refresh-error-header">
+              <div className="refresh-error-title-row">
+                <AlertCircle size={16} className="refresh-error-icon" />
+                <span className="refresh-error-title">Fehler beim Laden</span>
+              </div>
+              {onDismissError && (
+                <button
+                  type="button"
+                  className="refresh-error-close"
+                  onClick={onDismissError}
+                  title="Fehlermeldung schließen"
+                  aria-label="Fehlermeldung schließen"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <p className="refresh-error-message">{error}</p>
+            <div className="refresh-error-actions">
+              <button
+                type="button"
+                className="refresh-retry-button"
+                onClick={onRefresh}
+                disabled={isLoading}
+              >
+                <RefreshCw size={13} className={isLoading ? 'spinning' : ''} />
+                Erneut versuchen
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       <div className="legend-box">
         <div className="legend-title">Legende</div>
