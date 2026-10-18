@@ -1,5 +1,6 @@
 import React from 'react';
-import type { TruckConfig } from './types';
+import type { TruckConfig, RegionPreset } from './types';
+import { REGIONS } from './types';
 import {
   Truck,
   ArrowUpDown,
@@ -12,6 +13,8 @@ import {
   CheckCircle2,
   XCircle,
   X,
+  Zap,
+  Globe,
 } from 'lucide-react';
 
 interface ControlsProps {
@@ -24,6 +27,8 @@ interface ControlsProps {
   counts: { red: number; yellow: number; green: number; total: number };
   error?: string | null;
   onDismissError?: () => void;
+  onSelectRegion?: (region: RegionPreset) => void;
+  activeSource?: 'pmtiles' | 'overpass';
 }
 
 // Preset vehicle configurations
@@ -45,6 +50,8 @@ export const Controls: React.FC<ControlsProps> = ({
   counts,
   error,
   onDismissError,
+  onSelectRegion,
+  activeSource,
 }) => {
   return (
     <div className="sidebar-card">
@@ -57,6 +64,27 @@ export const Controls: React.FC<ControlsProps> = ({
           Passe die Maße deines Fahrzeugs an. Die Hindernisse auf der Karte werden sofort neu berechnet.
         </p>
       </div>
+
+      {/* Region Schnellwahl */}
+      {onSelectRegion && (
+        <div className="control-group">
+          <label className="label-heading">Region-Schnellwahl</label>
+          <div className="region-buttons">
+            {REGIONS.map((r) => (
+              <button
+                key={r.name}
+                type="button"
+                className={`region-btn ${r.source === 'pmtiles' ? 'region-pmtiles' : 'region-osm'}`}
+                onClick={() => onSelectRegion(r)}
+                title={`Zu ${r.name} wechseln (${r.source === 'pmtiles' ? 'PMTiles Vektorkacheln < 20ms' : 'Live Overpass API'})`}
+              >
+                {r.source === 'pmtiles' ? <Zap size={13} /> : <Globe size={13} />}
+                {r.name}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Preset Schnellwahl */}
       <div className="control-group">
@@ -228,7 +256,11 @@ export const Controls: React.FC<ControlsProps> = ({
           aria-label="Ausschnitt neu laden"
         >
           <RefreshCw size={18} className={isLoading ? 'spinning' : ''} />
-          {isLoading ? 'Lade OSM-Daten...' : 'Ausschnitt neu laden'}
+          {isLoading
+            ? 'Lade Daten...'
+            : activeSource === 'pmtiles'
+            ? 'Ausschnitt neu laden (PMTiles)'
+            : 'Ausschnitt neu laden (Overpass)'}
         </button>
 
         {error && (

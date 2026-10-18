@@ -1,10 +1,11 @@
 import React, { useState, useRef, useMemo, useCallback } from 'react';
-import type { TruckConfig, RestrictionItem, OsmElement } from './types';
+import type { TruckConfig, RestrictionItem, OsmElement, RegionPreset } from './types';
 import { fetchOsmRestrictions, processOsmElements, getErrorMessage } from './osmService';
+import { isBayernArea, fetchRestrictionsFromPmTiles } from './pmtilesService';
 import { MapView } from './MapView';
 import { Controls } from './Controls';
 import type { LatLngBounds } from 'leaflet';
-import { AlertCircle, MapPin, X } from 'lucide-react';
+import { AlertCircle, MapPin, X, Zap, Globe } from 'lucide-react';
 import './App.css';
 
 export const App: React.FC = () => {
@@ -22,6 +23,8 @@ export const App: React.FC = () => {
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [filterStatus, setFilterStatus] = useState<'all' | 'red' | 'yellow' | 'green'>('all');
+  const [activeSource, setActiveSource] = useState<'pmtiles' | 'overpass'>('pmtiles');
+  const [targetLocation, setTargetLocation] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
 
   // Track bounds, zoom & cache references
   const currentBoundsRef = useRef<LatLngBounds | null>(null);
@@ -31,10 +34,12 @@ export const App: React.FC = () => {
   const debounceTimerRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
 
-  // Load restrictions for given bounds with padding and coverage check
+  // Load restrictions for given bounds (auto-detects Bayern PMTiles vs Overpass live API)
   const loadData = useCallback(async (bounds: LatLngBounds, zoom: number, forceRefresh = false) => {
-    // If zoom is too far out (< 11), Overpass will time out or return too huge datasets
-    if (zoom < 11) {
+    const inBayern = isBayernArea(bounds);
+
+    // If outside Bayern and zoom is too far out (< 11), Overpass will time out
+    if (!inBayern && zoom < 11) {
       setError(`Kartenausschnitt zu groß (Zoomstufe ${zoom}): Bitte zoome näher heran (mindestens Stufe 11), um Hindernisse für diesen Bereich abzurufen.`);
       setIsLoading(false);
       return;
@@ -42,7 +47,6 @@ export const App: React.FC = () => {
 
     // Check if the current view is already fully covered by a previously fetched padded area
     if (!forceRefresh && loadedBoundsRef.current.some((loadedBox) => loadedBox.contains(bounds))) {
-      // Area is already cached; no network request needed
       return;
     }
 
@@ -56,15 +60,35 @@ export const App: React.FC = () => {
     setIsLoading(true);
     setError(null);
 
-    // Fetch with 25% padding so that slight panning or zooming in does not trigger another request
+    // Fetch with 25% padding so that slight panning or zooming in stays in cache
     const fetchBounds = bounds.pad(0.25);
-    const south = Math.max(-85, fetchBounds.getSouth());
-    const west = Math.max(-180, fetchBounds.getWest());
-    const north = Math.min(85, fetchBounds.getNorth());
-    const east = Math.min(180, fetchBounds.getEast());
 
     try {
-      const elements = await fetchOsmRestrictions(south, west, north, east, controller.signal);
+      let elements: OsmElement[] = [];
+
+      if (inBayern) {
+        // Blazing fast vector tile loading via PMTiles (< 20ms)
+        try {
+          elements = await fetchRestrictionsFromPmTiles(fetchBounds, zoom);
+          setActiveSource('pmtiles');
+        } catch (pmErr) {
+          console.warn('PMTiles laden fehlgeschlagen, wechsle zu Overpass:', pmErr);
+          const south = Math.max(-85, fetchBounds.getSouth());
+          const west = Math.max(-180, fetchBounds.getWest());
+          const north = Math.min(85, fetchBounds.getNorth());
+          const east = Math.min(180, fetchBounds.getEast());
+          elements = await fetchOsmRestrictions(south, west, north, east, controller.signal);
+          setActiveSource('overpass');
+        }
+      } else {
+        // Outside Bayern: Live Overpass API
+        const south = Math.max(-85, fetchBounds.getSouth());
+        const west = Math.max(-180, fetchBounds.getWest());
+        const north = Math.min(85, fetchBounds.getNorth());
+        const east = Math.min(180, fetchBounds.getEast());
+        elements = await fetchOsmRestrictions(south, west, north, east, controller.signal);
+        setActiveSource('overpass');
+      }
 
       // Merge into in-memory cache
       for (const el of elements) {
@@ -74,7 +98,7 @@ export const App: React.FC = () => {
 
       // Record loaded bounds
       loadedBoundsRef.current.push(fetchBounds);
-      if (loadedBoundsRef.current.length > 25) {
+      if (loadedBoundsRef.current.length > 30) {
         loadedBoundsRef.current.shift();
       }
 
@@ -95,22 +119,27 @@ export const App: React.FC = () => {
     currentZoomRef.current = zoom;
     setCurrentBounds(bounds);
 
-    // If the area is already covered by cache and zoom is valid, update instantly without debouncing or fetching
-    if (zoom >= 11 && loadedBoundsRef.current.some((loadedBox) => loadedBox.contains(bounds))) {
+    const inBayern = isBayernArea(bounds);
+
+    // If the area is already covered by cache, update instantly without debouncing
+    if ((inBayern || zoom >= 11) && loadedBoundsRef.current.some((loadedBox) => loadedBox.contains(bounds))) {
       if (debounceTimerRef.current) {
         window.clearTimeout(debounceTimerRef.current);
       }
       return;
     }
 
-    // Debounce to prevent spamming Overpass API while dragging into new areas
+    // Debounce to prevent spamming while dragging
     if (debounceTimerRef.current) {
       window.clearTimeout(debounceTimerRef.current);
     }
 
+    // PMTiles in Bayern can be requested much faster (200ms debounce instead of 500ms)
+    const debounceTime = inBayern ? 200 : 500;
+
     debounceTimerRef.current = window.setTimeout(() => {
       loadData(bounds, zoom);
-    }, 500);
+    }, debounceTime);
   }, [loadData]);
 
   // Manual refresh button (forceRefresh bypasses cache coverage check)
@@ -124,6 +153,10 @@ export const App: React.FC = () => {
 
   const handleDismissError = useCallback(() => {
     setError(null);
+  }, []);
+
+  const handleSelectRegion = useCallback((region: RegionPreset) => {
+    setTargetLocation({ lat: region.lat, lon: region.lon, zoom: region.zoom });
   }, []);
 
   // Re-evaluate restriction status whenever truck changes OR raw elements change
@@ -164,17 +197,23 @@ export const App: React.FC = () => {
         <div className="header-brand">
           <span className="brand-logo">🚚</span>
           <div className="brand-titles">
-            <h1>LKW-Hinderniskarte (OSM)</h1>
+            <h1>LKW-Hinderniskarte</h1>
             <p>Echtzeit-Prüfung von Durchfahrts-, Breiten- & Gewichtsbeschränkungen</p>
           </div>
         </div>
         <div className="header-info">
           <div className="badge badge-info">
-            <MapPin size={14} /> Beliebiger Kartenausschnitt
+            <MapPin size={14} /> Beliebiger Ausschnitt
           </div>
-          <div className="badge badge-osm">
-            Overpass OpenStreetMap API
-          </div>
+          {activeSource === 'pmtiles' ? (
+            <div className="badge badge-pmtiles" title="Daten werden lokal/per CDN aus PMTiles Vektorkacheln geladen (< 20ms)">
+              <Zap size={13} /> PMTiles Vektorkacheln (Bayern &lt; 20ms)
+            </div>
+          ) : (
+            <div className="badge badge-osm" title="Daten werden live von der OpenStreetMap Overpass API geladen">
+              <Globe size={13} /> Overpass OSM API (Live)
+            </div>
+          )}
         </div>
       </header>
 
@@ -211,6 +250,8 @@ export const App: React.FC = () => {
             counts={counts}
             error={error}
             onDismissError={handleDismissError}
+            onSelectRegion={handleSelectRegion}
+            activeSource={activeSource}
           />
         </aside>
 
@@ -222,6 +263,7 @@ export const App: React.FC = () => {
             onBoundsChange={handleBoundsChange}
             isLoading={isLoading}
             error={error}
+            targetLocation={targetLocation}
           />
         </main>
       </div>

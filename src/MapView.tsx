@@ -19,6 +19,7 @@ interface MapViewProps {
   isLoading: boolean;
   error?: string | null;
   onSelectFeature?: (item: RestrictionItem) => void;
+  targetLocation?: { lat: number; lon: number; zoom: number } | null;
 }
 
 export const MapView: React.FC<MapViewProps> = ({
@@ -28,18 +29,18 @@ export const MapView: React.FC<MapViewProps> = ({
   isLoading,
   error,
   onSelectFeature,
+  targetLocation,
 }) => {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
 
-  // Initialize Map
+  // Initialize Map (default center: München, Bayern to highlight PMTiles)
   useEffect(() => {
     if (!mapContainerRef.current || mapInstanceRef.current) return;
 
-    // Default center: Frankfurt am Main (major transit hub in Germany)
     const map = L.map(mapContainerRef.current, {
-      center: [50.1109, 8.6821],
+      center: [48.1374, 11.5755], // München Zentrum (Bayern)
       zoom: 13,
       zoomControl: false,
     });
@@ -74,6 +75,16 @@ export const MapView: React.FC<MapViewProps> = ({
       mapInstanceRef.current = null;
     };
   }, [onBoundsChange]);
+
+  // Handle flyTo when targetLocation changes
+  useEffect(() => {
+    if (!mapInstanceRef.current || !targetLocation) return;
+    mapInstanceRef.current.flyTo(
+      [targetLocation.lat, targetLocation.lon],
+      targetLocation.zoom,
+      { duration: 1.2 }
+    );
+  }, [targetLocation]);
 
   // Update Markers whenever items change
   useEffect(() => {
@@ -215,7 +226,7 @@ export const MapView: React.FC<MapViewProps> = ({
       {isLoading && (
         <div className="map-loading-overlay">
           <div className="spinner"></div>
-          <span>Lade Hindernisdaten von OpenStreetMap...</span>
+          <span>Lade Hindernisdaten...</span>
         </div>
       )}
       {error && !isLoading && (

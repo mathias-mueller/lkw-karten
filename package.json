@@ -8,18 +8,25 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "download:bayern": "node scripts/download-bayern.mjs",
+    "build:pmtiles": "tippecanoe -o public/bayern.pmtiles -z16 -Z0 --drop-densest-as-needed -l restrictions --force data/bayern-restrictions.geojson"
   },
   "dependencies": {
+    "@mapbox/vector-tile": "^3.0.0",
     "leaflet": "^1.9.4",
     "lucide-react": "^1.52.0",
+    "pbf": "^5.1.2",
+    "pmtiles": "^4.5.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/leaflet": "^1.9.22",
+    "@types/mapbox__vector-tile": "^1.3.4",
     "@types/node": "^24.13.3",
+    "@types/pbf": "^3.0.5",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@vitejs/plugin-react": "^6.1.1",

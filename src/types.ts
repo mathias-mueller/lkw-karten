@@ -48,3 +48,17 @@ export interface RestrictionItem {
   borderlineTypes: RestrictionType[];
   infoTexts: string[];
 }
+
+export interface RegionPreset {
+  name: string;
+  lat: number;
+  lon: number;
+  zoom: number;
+  source: 'pmtiles' | 'overpass';
+}
+
+export const REGIONS: RegionPreset[] = [
+  { name: 'München', lat: 48.1374, lon: 11.5755, zoom: 13, source: 'pmtiles' },
+  { name: 'Nürnberg', lat: 49.4521, lon: 11.0767, zoom: 13, source: 'pmtiles' },
+  { name: 'Frankfurt', lat: 50.1109, lon: 8.6821, zoom: 13, source: 'overpass' },
+];
