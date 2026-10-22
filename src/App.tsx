@@ -5,7 +5,7 @@ import { isBayernArea, fetchRestrictionsFromPmTiles } from './pmtilesService';
 import { MapView } from './MapView';
 import { Controls } from './Controls';
 import type { LatLngBounds } from 'leaflet';
-import { AlertCircle, MapPin, X, Zap, Globe } from 'lucide-react';
+import { AlertCircle, MapPin, X, Zap, Globe, SlidersHorizontal, Truck } from 'lucide-react';
 import './App.css';
 
 export const App: React.FC = () => {
@@ -25,6 +25,7 @@ export const App: React.FC = () => {
   const [filterStatus, setFilterStatus] = useState<'all' | 'red' | 'yellow' | 'green'>('all');
   const [activeSource, setActiveSource] = useState<'pmtiles' | 'overpass'>('pmtiles');
   const [targetLocation, setTargetLocation] = useState<{ lat: number; lon: number; zoom: number } | null>(null);
+  const [isMobileDrawerOpen, setIsMobileDrawerOpen] = useState<boolean>(false);
 
   // Track bounds, zoom & cache references
   const currentBoundsRef = useRef<LatLngBounds | null>(null);
@@ -201,26 +202,69 @@ export const App: React.FC = () => {
             <p>Echtzeit-Prüfung von Durchfahrts-, Breiten- & Gewichtsbeschränkungen</p>
           </div>
         </div>
+
         <div className="header-info">
           <div className="badge badge-info">
             <MapPin size={14} /> Beliebiger Ausschnitt
           </div>
           {activeSource === 'pmtiles' ? (
             <div className="badge badge-pmtiles" title="Daten werden lokal/per CDN aus PMTiles Vektorkacheln geladen (< 20ms)">
-              <Zap size={13} /> PMTiles Vektorkacheln (Bayern &lt; 20ms)
+              <Zap size={13} />
+              <span className="badge-text-full">PMTiles Vektorkacheln (Bayern &lt; 20ms)</span>
+              <span className="badge-text-mobile">PMTiles (&lt; 20ms)</span>
             </div>
           ) : (
             <div className="badge badge-osm" title="Daten werden live von der OpenStreetMap Overpass API geladen">
-              <Globe size={13} /> Overpass OSM API (Live)
+              <Globe size={13} />
+              <span className="badge-text-full">Overpass OSM API (Live)</span>
+              <span className="badge-text-mobile">OSM Live</span>
             </div>
           )}
+
+          {/* Mobile Header Toggle Button */}
+          <button
+            type="button"
+            className="mobile-header-btn"
+            onClick={() => setIsMobileDrawerOpen((prev) => !prev)}
+            aria-label={isMobileDrawerOpen ? 'Karte anzeigen' : 'LKW-Maße & Filter öffnen'}
+          >
+            <SlidersHorizontal size={15} />
+            <span>{isMobileDrawerOpen ? 'Karte' : 'Filter & LKW'}</span>
+            {counts.red > 0 && <span className="mobile-badge-alert">{counts.red}</span>}
+          </button>
         </div>
       </header>
 
       {/* Main Workspace */}
       <div className="main-content">
-        {/* Left Sidebar Controls */}
-        <aside className="sidebar">
+        {/* Backdrop for mobile drawer */}
+        <div
+          className={`sidebar-backdrop ${isMobileDrawerOpen ? 'active' : ''}`}
+          onClick={() => setIsMobileDrawerOpen(false)}
+          aria-hidden="true"
+        />
+
+        {/* Left Sidebar Controls / Mobile Drawer */}
+        <aside className={`sidebar ${isMobileDrawerOpen ? 'mobile-open' : ''}`}>
+          {/* Mobile Drawer Header */}
+          <div className="mobile-sheet-header">
+            <div className="mobile-sheet-handle" />
+            <div className="mobile-sheet-title-row">
+              <div className="mobile-sheet-title">
+                <Truck size={20} className="title-icon" />
+                <span>LKW-Maße & Filter</span>
+              </div>
+              <button
+                type="button"
+                className="mobile-sheet-close-btn"
+                onClick={() => setIsMobileDrawerOpen(false)}
+                aria-label="Schließen und zur Karte"
+              >
+                <X size={18} />
+              </button>
+            </div>
+          </div>
+
           {error && (
             <div className="alert-banner" role="alert">
               <AlertCircle size={18} className="alert-banner-icon" />
@@ -252,6 +296,7 @@ export const App: React.FC = () => {
             onDismissError={handleDismissError}
             onSelectRegion={handleSelectRegion}
             activeSource={activeSource}
+            onClose={() => setIsMobileDrawerOpen(false)}
           />
         </aside>
 
@@ -265,6 +310,22 @@ export const App: React.FC = () => {
             error={error}
             targetLocation={targetLocation}
           />
+
+          {/* Floating Pill Button for Mobile Map */}
+          <button
+            type="button"
+            className="mobile-floating-pill"
+            onClick={() => setIsMobileDrawerOpen(true)}
+            aria-label="LKW-Einstellungen und Filter bearbeiten"
+          >
+            <SlidersHorizontal size={15} />
+            <span className="mobile-pill-text">
+              {truck.weight.toFixed(0)}t · {truck.height.toFixed(1)}m · {truck.width.toFixed(1)}m
+            </span>
+            <span className="mobile-pill-count" title={`${counts.total} Hindernisse im aktuellen Ausschnitt`}>
+              {counts.total}
+            </span>
+          </button>
         </main>
       </div>
     </div>

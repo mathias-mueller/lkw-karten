@@ -69,7 +69,19 @@ export const MapView: React.FC<MapViewProps> = ({
 
     map.on('moveend', handleMoveEnd);
 
+    // Auto-resize when container dimensions change (mobile drawer, orientation change, etc.)
+    let resizeObserver: ResizeObserver | null = null;
+    if (mapContainerRef.current && typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      resizeObserver.observe(mapContainerRef.current);
+    }
+
     return () => {
+      if (resizeObserver) {
+        resizeObserver.disconnect();
+      }
       map.off('moveend', handleMoveEnd);
       map.remove();
       mapInstanceRef.current = null;
@@ -173,7 +185,7 @@ export const MapView: React.FC<MapViewProps> = ({
       const osmLink = `https://www.openstreetmap.org/${item.osmType}/${item.osmId}`;
 
       const popupHtml = `
-        <div style="font-family: system-ui, -apple-system, sans-serif; font-size: 13px; min-width: 220px; line-height: 1.4;">
+        <div style="font-family: system-ui, -apple-system, sans-serif; font-size: 13px; min-width: 200px; line-height: 1.4;">
           <div style="margin-bottom: 6px; font-size: 14px;">${statusTitle}</div>
           ${item.name ? `<div style="font-weight: 600; margin-bottom: 6px; color: #1e293b;">${item.name}</div>` : ''}
           <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px;">
@@ -191,7 +203,12 @@ export const MapView: React.FC<MapViewProps> = ({
         </div>
       `;
 
-      marker.bindPopup(popupHtml);
+      marker.bindPopup(popupHtml, {
+        maxWidth: 290,
+        minWidth: 200,
+        autoPanPadding: [12, 12],
+      });
+
       marker.on('click', () => {
         if (onSelectFeature) onSelectFeature(item);
       });
@@ -221,7 +238,8 @@ export const MapView: React.FC<MapViewProps> = ({
     <div className="map-wrapper">
       <div ref={mapContainerRef} className="map-container" />
       <button className="map-locate-btn" onClick={handleLocateMe} title="Zu meinem Standort">
-        📍 Mein Standort
+        <span className="locate-icon">📍</span>
+        <span className="locate-label">Mein Standort</span>
       </button>
       {isLoading && (
         <div className="map-loading-overlay">

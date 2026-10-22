@@ -29,6 +29,7 @@ interface ControlsProps {
   onDismissError?: () => void;
   onSelectRegion?: (region: RegionPreset) => void;
   activeSource?: 'pmtiles' | 'overpass';
+  onClose?: () => void;
 }
 
 // Preset vehicle configurations
@@ -52,6 +53,7 @@ export const Controls: React.FC<ControlsProps> = ({
   onDismissError,
   onSelectRegion,
   activeSource,
+  onClose,
 }) => {
   return (
     <div className="sidebar-card">
@@ -75,7 +77,9 @@ export const Controls: React.FC<ControlsProps> = ({
                 key={r.name}
                 type="button"
                 className={`region-btn ${r.source === 'pmtiles' ? 'region-pmtiles' : 'region-osm'}`}
-                onClick={() => onSelectRegion(r)}
+                onClick={() => {
+                  onSelectRegion(r);
+                }}
                 title={`Zu ${r.name} wechseln (${r.source === 'pmtiles' ? 'PMTiles Vektorkacheln < 20ms' : 'Live Overpass API'})`}
               >
                 {r.source === 'pmtiles' ? <Zap size={13} /> : <Globe size={13} />}
@@ -129,6 +133,7 @@ export const Controls: React.FC<ControlsProps> = ({
           value={truck.height}
           onChange={(e) => onChange({ ...truck, height: parseFloat(e.target.value) })}
           className="range-slider"
+          aria-label="Fahrzeughöhe in Metern"
         />
         <div className="slider-ticks">
           <span>2.0m</span>
@@ -155,6 +160,7 @@ export const Controls: React.FC<ControlsProps> = ({
           value={truck.width}
           onChange={(e) => onChange({ ...truck, width: parseFloat(e.target.value) })}
           className="range-slider"
+          aria-label="Fahrzeugbreite in Metern"
         />
         <div className="slider-ticks">
           <span>1.8m</span>
@@ -181,6 +187,7 @@ export const Controls: React.FC<ControlsProps> = ({
           value={truck.weight}
           onChange={(e) => onChange({ ...truck, weight: parseFloat(e.target.value) })}
           className="range-slider"
+          aria-label="Gesamtgewicht in Tonnen"
         />
         <div className="slider-ticks">
           <span>2.0t</span>
@@ -207,6 +214,7 @@ export const Controls: React.FC<ControlsProps> = ({
           value={truck.axleLoad}
           onChange={(e) => onChange({ ...truck, axleLoad: parseFloat(e.target.value) })}
           className="range-slider"
+          aria-label="Achslast in Tonnen"
         />
         <div className="slider-ticks">
           <span>1.0t</span>
@@ -313,6 +321,18 @@ export const Controls: React.FC<ControlsProps> = ({
           <span><strong>Grün:</strong> OK (gefahrlos passierbar)</span>
         </div>
       </div>
+
+      {/* Mobile-only close button */}
+      {onClose && (
+        <button
+          type="button"
+          className="mobile-drawer-apply-btn"
+          onClick={onClose}
+        >
+          <CheckCircle2 size={18} />
+          <span>Fertig (Karte anzeigen)</span>
+        </button>
+      )}
     </div>
   );
 };
