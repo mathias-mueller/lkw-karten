@@ -39,6 +39,7 @@ const PRESETS = [
   { name: '7.5t Transporter / Koffer', height: 3.2, width: 2.4, weight: 7.5, axleLoad: 5.0 },
   { name: '3.5t Sprinter', height: 2.7, width: 2.1, weight: 3.5, axleLoad: 2.2 },
   { name: 'Schwertransport / Gigaliner', height: 4.3, width: 3.0, weight: 50.0, axleLoad: 13.0 },
+  { name: 'THW', height: 4.0, width: 2.55, weight: 14.0, axleLoad: 7.0 },
 ];
 
 export const Controls: React.FC<ControlsProps> = ({
