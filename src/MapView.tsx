@@ -1,8 +1,8 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { RestrictionItem, TruckConfig } from './types';
-import { AlertCircle } from 'lucide-react';
+import { AlertCircle, LocateFixed } from 'lucide-react';
 
 // Fix standard Leaflet marker icons when bundled with Vite
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
@@ -34,6 +34,8 @@ export const MapView: React.FC<MapViewProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const userLocationLayerRef = useRef<L.LayerGroup | null>(null);
+  const [isLocating, setIsLocating] = useState<boolean>(false);
 
   // Initialize Map (default center: München, Bayern to highlight PMTiles)
   useEffect(() => {
@@ -57,6 +59,11 @@ export const MapView: React.FC<MapViewProps> = ({
 
     const markersGroup = L.layerGroup().addTo(map);
     markersLayerRef.current = markersGroup;
+
+    // Dedicated layer for user's GPS position and accuracy circle
+    const userLocationGroup = L.layerGroup().addTo(map);
+    userLocationLayerRef.current = userLocationGroup;
+
     mapInstanceRef.current = map;
 
     // Trigger initial bounds
@@ -68,6 +75,63 @@ export const MapView: React.FC<MapViewProps> = ({
     };
 
     map.on('moveend', handleMoveEnd);
+
+    // Leaflet built-in location events
+    const handleLocationFound = (e: L.LocationEvent) => {
+      setIsLocating(false);
+      if (!userLocationLayerRef.current) return;
+      userLocationLayerRef.current.clearLayers();
+
+      // Draw accuracy radius circle
+      const accuracyCircle = L.circle(e.latlng, {
+        radius: e.accuracy,
+        color: '#2563eb',
+        weight: 1.5,
+        fillColor: '#3b82f6',
+        fillOpacity: 0.15,
+      });
+
+      // Draw distinct pulsing GPS dot
+      const userIcon = L.divIcon({
+        className: 'user-location-marker',
+        html: `
+          <div class="user-location-dot">
+            <div class="user-location-pulse"></div>
+            <div class="user-location-core"></div>
+          </div>
+        `,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        popupAnchor: [0, -11],
+      });
+
+      const userMarker = L.marker(e.latlng, {
+        icon: userIcon,
+        zIndexOffset: 1000,
+      });
+
+      userMarker.bindPopup(`
+        <div style="font-family: system-ui, -apple-system, sans-serif; font-size: 13px; line-height: 1.4; padding: 2px;">
+          <div style="font-weight: 700; color: #1e293b; margin-bottom: 4px;">📍 Dein aktueller Standort</div>
+          <div style="color: #475569; font-size: 12px;">Genauigkeit: ca. ${Math.round(e.accuracy)} m</div>
+          <div style="color: #64748b; font-size: 11px; margin-top: 2px;">
+            ${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}
+          </div>
+        </div>
+      `);
+
+      userLocationLayerRef.current.addLayer(accuracyCircle);
+      userLocationLayerRef.current.addLayer(userMarker);
+      userMarker.openPopup();
+    };
+
+    const handleLocationError = (e: L.ErrorEvent) => {
+      setIsLocating(false);
+      alert(`Standort konnte nicht ermittelt werden: ${e.message}`);
+    };
+
+    map.on('locationfound', handleLocationFound);
+    map.on('locationerror', handleLocationError);
 
     // Auto-resize when container dimensions change (mobile drawer, orientation change, etc.)
     let resizeObserver: ResizeObserver | null = null;
@@ -83,6 +147,9 @@ export const MapView: React.FC<MapViewProps> = ({
         resizeObserver.disconnect();
       }
       map.off('moveend', handleMoveEnd);
+      map.off('locationfound', handleLocationFound);
+      map.off('locationerror', handleLocationError);
+      map.stopLocate();
       map.remove();
       mapInstanceRef.current = null;
     };
@@ -217,29 +284,33 @@ export const MapView: React.FC<MapViewProps> = ({
     });
   }, [items, truck, onSelectFeature]);
 
-  // Geolocation button helper
-  const handleLocateMe = () => {
+  // Leaflet built-in locate handler
+  const handleLocateMe = useCallback(() => {
     if (!mapInstanceRef.current) return;
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => {
-          mapInstanceRef.current?.setView([pos.coords.latitude, pos.coords.longitude], 14);
-        },
-        (err) => {
-          alert('Standort konnte nicht ermittelt werden: ' + err.message);
-        }
-      );
-    } else {
-      alert('Geolocation wird von diesem Browser nicht unterstützt.');
-    }
-  };
+    setIsLocating(true);
+    // Use Leaflet's built-in map.locate method
+    mapInstanceRef.current.locate({
+      setView: true,
+      maxZoom: 16,
+      enableHighAccuracy: true,
+    });
+  }, []);
 
   return (
     <div className="map-wrapper">
       <div ref={mapContainerRef} className="map-container" />
-      <button className="map-locate-btn" onClick={handleLocateMe} title="Zu meinem Standort">
-        <span className="locate-icon">📍</span>
-        <span className="locate-label">Mein Standort</span>
+      <button
+        type="button"
+        className={`map-locate-btn ${isLocating ? 'locating' : ''}`}
+        onClick={handleLocateMe}
+        disabled={isLocating}
+        title="Aktuellen Standort auf der Karte anzeigen (Leaflet GPS)"
+        aria-label="Aktuellen Standort auf der Karte anzeigen"
+      >
+        <LocateFixed size={17} className={isLocating ? 'spinning' : 'locate-icon'} />
+        <span className="locate-label">
+          {isLocating ? 'Suche Standort...' : 'Mein Standort'}
+        </span>
       </button>
       {isLoading && (
         <div className="map-loading-overlay">
